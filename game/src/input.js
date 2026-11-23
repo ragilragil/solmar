@@ -1,53 +1,76 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard and mouse state for the canvas game. Keys report two ways: down()
+// is true while held, pressed() is true once, on the frame the key went down,
+// and is then consumed. Mouse clicks work the same way. The game loop calls
+// endFrame() after each update so a press never fires twice.
+export function createInput(canvas) {
+  const held = {};
+  const hit = {};
+  const mouse = { x: 0, y: 0, down: false, left: false, right: false };
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
+  function codeOf(event) {
+    return event.code || '';
+  }
 
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+    const code = codeOf(event);
+    if (!code) return;
+    if (!held[code]) hit[code] = true;
+    held[code] = true;
+    if (code === 'Space' || code.startsWith('Arrow')) event.preventDefault();
   });
   window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+    held[codeOf(event)] = false;
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
   window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
+    for (const code of Object.keys(held)) held[code] = false;
   });
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+  function track(event) {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = event.clientX - rect.left;
+    mouse.y = event.clientY - rect.top;
+  }
+  canvas.addEventListener('mousemove', track);
+  canvas.addEventListener('mousedown', (event) => {
+    track(event);
+    mouse.down = true;
+    if (event.button === 0) mouse.left = true;
+    if (event.button === 2) mouse.right = true;
+  });
+  window.addEventListener('mouseup', (event) => {
+    if (event.button === 0) mouse.down = false;
+  });
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
+  function down(code) {
+    return !!held[code];
+  }
+  function pressed(code) {
+    if (hit[code]) {
+      hit[code] = false;
+      return true;
+    }
+    return false;
+  }
+  function clickedLeft() {
+    if (mouse.left) {
+      mouse.left = false;
+      return true;
+    }
+    return false;
+  }
+  function clickedRight() {
+    if (mouse.right) {
+      mouse.right = false;
+      return true;
+    }
+    return false;
+  }
+  function endFrame() {
+    for (const code of Object.keys(hit)) hit[code] = false;
+    mouse.left = false;
+    mouse.right = false;
+  }
+
+  return { down, pressed, clickedLeft, clickedRight, endFrame, mouse };
 }
